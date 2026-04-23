@@ -19,4 +19,11 @@ build/
 *.swo
 .idea/
 .vscode/
-.venv/
+
+# docs/ is used locally as a scratchpad for plan drafts, adversarial review
+# outputs, conversation logs, and handoff notes. Only the final spec and plan
+# get tracked in the repo. Add exceptions with `!docs/<file>` if something
+# graduates into public documentation.
+docs/*
+!docs/spec.v3.md
+!docs/plan.v3.md

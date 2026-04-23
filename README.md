@@ -30,7 +30,7 @@ That's it. The second command registers the MCP server with Claude Code and drop
 
 ## How it works
 
-See [`docs/spec.v3.md`](docs/spec.v3.md) for the full product spec and [`docs/plan.v3.md`](docs/plan.v3.md) for the implementation plan. The roadmap for post-v1 work is at [`docs/roadmap.md`](docs/roadmap.md).
+See [`docs/spec.v3.md`](docs/spec.v3.md) for the full product spec and [`docs/plan.v3.md`](docs/plan.v3.md) for the implementation plan.
 
 ## CLI
 
