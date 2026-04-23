@@ -63,9 +63,23 @@ async def call_anthropic(
         "model": model.model_id,
         "max_tokens": max_output_tokens,
         "messages": [{"role": "user", "content": user_prompt}],
+        # Priority Tier: use prioritized capacity when available, reducing
+        # 529 overloaded errors during peak demand.
+        "service_tier": "auto",
     }
     if system_prompt:
-        body["system"] = system_prompt
+        # Prompt caching: tag the system prompt for cache_control so the
+        # second Anthropic reviewer call (same system prompt) gets a cache
+        # hit — up to 85% latency reduction and 90% cost reduction on the
+        # cached portion. Minimum cacheable size varies by model (2048-4096
+        # tokens); our reviewer system prompt + rubric typically exceeds this.
+        body["system"] = [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
     if not model.thinking_enabled:
         # Explicitly disable extended thinking; absence of key is NOT equivalent
         # on 4-6+ models which may default to adaptive.
@@ -109,7 +123,12 @@ async def call_openai_compatible(
     body: dict[str, Any] = {
         "model": model.model_id,
         "messages": messages,
-        "max_tokens": max_output_tokens,
+        # GPT-5.x series rejects the deprecated `max_tokens` param and
+        # requires `max_completion_tokens`. This is the OpenAI-standard
+        # parameter name since late 2024. Compat endpoints (xAI, vLLM,
+        # OpenRouter) generally accept it; if a specific endpoint doesn't,
+        # the user gets a clear HTTP 400 pointing to models.yaml override.
+        "max_completion_tokens": max_output_tokens,
         "response_format": {"type": "json_object"},
     }
 

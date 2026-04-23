@@ -575,7 +575,12 @@ async def _run_dedup(
     successes: list[tuple[ModelConfig, list[dict] | None, dict]],
     dedup_window: float = DEDUP_BUDGET,
 ) -> tuple[list[Finding], str, bool, dict]:
-    """Run dedup with the spec §10 fallback chain, bounded by ``dedup_window``.
+    """Run dedup with parallel fan-out, bounded by ``dedup_window``.
+
+    All dedup candidates run simultaneously. The first valid result wins;
+    remaining tasks are cancelled. This replaces the sequential fallback
+    that let each candidate burn the full timeout independently (a bug
+    that allowed 3 × 10s = 30s of dedup time on a 10s budget).
 
     Returns (findings, method, skipped, usage_dict_with_cost).
     """
@@ -584,27 +589,61 @@ async def _run_dedup(
         return [], "deterministic", False, usage
 
     if dedup_window <= 0.5:
-        # No meaningful budget left for a remote call — go deterministic.
         return _dedup.deterministic_dedup(items), "deterministic", True, usage
 
-    # Build fallback order: designated dedup model, then reviewer-role fallbacks.
+    # Build candidate pool: designated dedup models + successful non-thinking
+    # reviewer models as fallbacks.
     candidates: list[ModelConfig] = list(dedup_models)
     for m, _f, _u in successes:
         if m not in candidates and not m.thinking_enabled:
             candidates.append(m)
 
+    if not candidates:
+        findings = _dedup.deterministic_dedup(items)
+        return findings, "deterministic", True, usage
+
+    # Fan out all candidates in parallel. First valid result wins.
+    import asyncio as _aio
+
+    tasks: dict[_aio.Task, ModelConfig] = {}
     for cand in candidates:
-        findings, pr = await _dedup.model_dedup(
-            client, items, cand, timeout_seconds=dedup_window
+        task = _aio.create_task(
+            _dedup.model_dedup(client, items, cand, timeout_seconds=dedup_window),
+            name=f"dedup-{cand.name}",
         )
-        if findings is not None and pr is not None:
-            cost = _cost.estimate_cost(cand, pr.input_tokens, pr.output_tokens) or 0.0
-            usage = {
-                "input_tokens": pr.input_tokens,
-                "output_tokens": pr.output_tokens,
-                "cost_usd": cost,
-            }
-            return findings, "model", False, usage
+        tasks[task] = cand
+
+    pending = set(tasks.keys())
+    try:
+        async with _aio.timeout(dedup_window):
+            while pending:
+                done, pending = await _aio.wait(pending, return_when=_aio.FIRST_COMPLETED)
+                for done_task in done:
+                    try:
+                        findings, pr = done_task.result()
+                    except Exception:  # noqa: BLE001
+                        continue
+                    if findings is not None and pr is not None:
+                        cand = tasks[done_task]
+                        cost = _cost.estimate_cost(cand, pr.input_tokens, pr.output_tokens) or 0.0
+                        usage = {
+                            "input_tokens": pr.input_tokens,
+                            "output_tokens": pr.output_tokens,
+                            "cost_usd": cost,
+                        }
+                        return findings, "model", False, usage
+    except TimeoutError:
+        log.warning("All dedup candidates exceeded %.1fs window", dedup_window)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        for task in tasks:
+            if not task.done():
+                try:
+                    await task
+                except (_aio.CancelledError, Exception):  # noqa: BLE001
+                    pass
 
     # Deterministic fallback
     findings = _dedup.deterministic_dedup(items)

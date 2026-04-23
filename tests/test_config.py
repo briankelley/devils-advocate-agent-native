@@ -9,7 +9,7 @@ def test_no_keys_detected(monkeypatch):
 def test_single_anthropic_key_minimum_met_via_dual_reviewer(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     reviewers, dedup = _config.build_model_table()
-    assert len(reviewers) == 2  # sonnet + opus
+    assert len(reviewers) == 2  # sonnet-4-6 + sonnet-4-5
     assert _config.minimum_met(reviewers) is True
     assert _config.compute_diversity_warning(reviewers) is True
 
@@ -32,8 +32,8 @@ def test_reviewer_order_prioritizes_cross_provider(monkeypatch):
 def test_google_only_gets_dedup_fallback(monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", "google-test")
     reviewers, dedup = _config.build_model_table()
-    assert len(reviewers) == 2  # pro + flash
-    assert any(m.model_id == "gemini-2.5-flash" and m.role == "dedup" for m in dedup)
+    assert len(reviewers) == 2  # flash-preview + pro-preview
+    assert any(m.model_id == "gemini-3-flash-preview" and m.role == "dedup" for m in dedup)
 
 
 def test_openai_base_url_propagated(monkeypatch):

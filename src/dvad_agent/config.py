@@ -44,24 +44,31 @@ DEFAULT_BUDGET_DAILY = 50.00
 # Two reviewer-role models per provider + one non-reasoning dedup model.
 # See plan §3 Phase 1: "Default model table (revised — two reviewer-role
 # models per provider)". Non-reasoning dedup models are mandatory for hitting
-# latency budget.
+# latency budget. All reviewers run with thinking_enabled=False for speed.
+#
+# Updated 2026-04-23: gpt-4o/4.1 → gpt-5.2/5.4-mini, gemini-2.5-flash →
+# gemini-3-flash/pro-preview, opus → sonnet-4-5. Prior defaults were stale —
+# older models at higher cost with lower capability.
 _DEFAULT_MODEL_TABLE: dict[str, list[dict[str, Any]]] = {
     "anthropic": [
-        {
-            "model_id": "claude-sonnet-4-6",
-            "role": "reviewer",
-            "cost_per_1k_input": 0.003,
-            "cost_per_1k_output": 0.015,
-            "context_window": 200_000,
-            "max_output_tokens": 1500,
-        },
+        # Opus models only. Sonnet has been unreliable since early 2026 —
+        # quality regressions make it unsuitable for adversarial review.
+        # Two Opus generations for intra-provider diversity.
         {
             "model_id": "claude-opus-4-7",
             "role": "reviewer",
-            "cost_per_1k_input": 0.015,
-            "cost_per_1k_output": 0.075,
+            "cost_per_1k_input": 0.005,
+            "cost_per_1k_output": 0.025,
             "context_window": 200_000,
-            "max_output_tokens": 1500,
+            "max_output_tokens": 3000,
+        },
+        {
+            "model_id": "claude-opus-4-6",
+            "role": "reviewer",
+            "cost_per_1k_input": 0.005,
+            "cost_per_1k_output": 0.025,
+            "context_window": 200_000,
+            "max_output_tokens": 3000,
         },
         {
             "model_id": "claude-haiku-4-5-20251001",
@@ -74,52 +81,51 @@ _DEFAULT_MODEL_TABLE: dict[str, list[dict[str, Any]]] = {
         },
     ],
     "openai": [
-        # Note: gpt-5 / o3 are the long-term preferred reviewers but require
-        # OpenAI org verification. Default table uses unrestricted models;
-        # override in models.yaml once your org is verified.
         {
-            "model_id": "gpt-4o",
+            "model_id": "gpt-5.2",
             "role": "reviewer",
-            "cost_per_1k_input": 0.0025,
-            "cost_per_1k_output": 0.010,
-            "context_window": 128_000,
+            "cost_per_1k_input": 0.00175,
+            "cost_per_1k_output": 0.014,
+            "context_window": 400_000,
             "max_output_tokens": 1500,
         },
         {
-            "model_id": "gpt-4.1",
+            "model_id": "gpt-5.4-mini",
             "role": "reviewer",
-            "cost_per_1k_input": 0.002,
-            "cost_per_1k_output": 0.008,
-            "context_window": 1_000_000,
+            "cost_per_1k_input": 0.00075,
+            "cost_per_1k_output": 0.0045,
+            "context_window": 400_000,
             "max_output_tokens": 1500,
         },
         {
-            "model_id": "gpt-4o-mini",
+            "model_id": "gpt-5.4-nano",
             "role": "dedup",
-            "cost_per_1k_input": 0.00015,
-            "cost_per_1k_output": 0.0006,
-            "context_window": 128_000,
+            "cost_per_1k_input": 0.0002,
+            "cost_per_1k_output": 0.00125,
+            "context_window": 400_000,
             "max_output_tokens": 2000,
+            "thinking_enabled": False,
         },
     ],
     "google": [
-        # Gemini 2.5 Pro refuses thinking-disabled mode ("only works in thinking
-        # mode"). For a non-reasoning reviewer role with a 1500-token cap, only
-        # flash works reliably. Pro is a power-user override (models.yaml with
-        # thinking_enabled=True + higher max_output_tokens).
         {
-            "model_id": "gemini-2.5-flash",
+            "model_id": "gemini-3-flash-preview",
             "role": "reviewer",
-            "cost_per_1k_input": 0.000075,
-            "cost_per_1k_output": 0.0003,
+            "cost_per_1k_input": 0.0005,
+            "cost_per_1k_output": 0.003,
             "context_window": 1_000_000,
             "max_output_tokens": 1500,
         },
+        # gemini-3-pro-preview refuses thinking-disabled mode (same as
+        # gemini-2.5-pro — "Budget 0 is invalid. This model only works in
+        # thinking mode"). Pro is a power-user override via models.yaml with
+        # thinking_enabled=True. Default second Google reviewer is the prior
+        # generation flash, which handles thinking-off reliably.
         {
-            "model_id": "gemini-2.5-flash-lite",
+            "model_id": "gemini-2.5-flash",
             "role": "reviewer",
-            "cost_per_1k_input": 0.0000375,
-            "cost_per_1k_output": 0.00015,
+            "cost_per_1k_input": 0.0003,
+            "cost_per_1k_output": 0.0025,
             "context_window": 1_000_000,
             "max_output_tokens": 1500,
         },
@@ -128,10 +134,10 @@ _DEFAULT_MODEL_TABLE: dict[str, list[dict[str, Any]]] = {
 
 # Gemini flash also serves as the dedup fallback for google-only setups.
 _GOOGLE_DEDUP_MODEL: dict[str, Any] = {
-    "model_id": "gemini-2.5-flash",
+    "model_id": "gemini-3-flash-preview",
     "role": "dedup",
-    "cost_per_1k_input": 0.000075,
-    "cost_per_1k_output": 0.0003,
+    "cost_per_1k_input": 0.0005,
+    "cost_per_1k_output": 0.003,
     "context_window": 1_000_000,
     "max_output_tokens": 2000,
 }

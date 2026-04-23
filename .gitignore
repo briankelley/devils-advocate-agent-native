@@ -27,3 +27,5 @@ build/
 docs/*
 !docs/spec.v3.md
 !docs/plan.v3.md
+!docs/handoff.*.md
+!docs/findings.*.md
