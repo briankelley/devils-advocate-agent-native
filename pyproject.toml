@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dvad-agent-native"
-version = "0.1.0"
+version = "0.1.1"
 description = "Agent-native adversarial review — multi-LLM review as an MCP server + Claude Code skill."
 readme = "README.md"
 requires-python = ">=3.11"

@@ -1,9 +1,13 @@
 """dvad-agent install — register the MCP server with Claude Code and drop the skill.
 
-- Writes MCP server entry to Claude Code's settings.json (default: ~/.claude/settings.json)
+- Writes MCP server entry to ~/.claude.json (the file Claude Code reads for
+  MCP server config — NOT ~/.claude/settings.json, which is for permissions
+  and other settings only)
+- Resolves the full path to dvad-agent-mcp at install time so the MCP server
+  works regardless of PATH at spawn time (VS Code desktop launch, etc.)
 - Creates a timestamped backup of the existing config before modification
-- Merges into existing settings without overwriting other MCP servers
-- Supports --dry-run
+- Merges into existing projects/scopes without overwriting other MCP servers
+- Supports --dry-run and --scope (user or local)
 - On any failure, prints the exact JSON/file the user can paste manually
 """
 
@@ -17,14 +21,22 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_SETTINGS = Path.home() / ".claude" / "settings.json"
+DEFAULT_CLAUDE_JSON = Path.home() / ".claude.json"
 DEFAULT_SKILL_DIR = Path.home() / ".claude" / "skills"
 SKILL_FILENAME = "dvad.md"
 
 
+def _resolve_binary() -> str:
+    """Return the absolute path to dvad-agent-mcp if found on PATH,
+    otherwise fall back to the bare command name."""
+    binary = shutil.which("dvad-agent-mcp")
+    return binary if binary else "dvad-agent-mcp"
+
+
 def _mcp_entry() -> dict:
     return {
-        "command": "dvad-agent-mcp",
+        "type": "stdio",
+        "command": _resolve_binary(),
         "args": [],
     }
 
@@ -36,70 +48,105 @@ def _embedded_skill_body() -> str:
     return _SKILL_TEMPLATE
 
 
+def _build_project_key(cwd: str | None = None) -> str:
+    """Build the project key Claude Code uses in ~/.claude.json.
+
+    For user-scope installs this returns a wildcard that applies to all
+    projects. For local-scope installs it returns the CWD path."""
+    if cwd:
+        return cwd
+    return "*"
+
+
 def run_install(
     *,
     dry_run: bool = False,
     config_path: str | None = None,
     skill_dir: str | None = None,
+    scope: str = "user",
 ) -> int:
-    settings = Path(config_path) if config_path else DEFAULT_SETTINGS
+    claude_json = Path(config_path) if config_path else DEFAULT_CLAUDE_JSON
     skills = Path(skill_dir) if skill_dir else DEFAULT_SKILL_DIR
     intended_skill = skills / SKILL_FILENAME
 
     existing: dict = {}
-    if settings.exists():
+    if claude_json.exists():
         try:
-            existing = json.loads(settings.read_text(encoding="utf-8") or "{}")
+            existing = json.loads(claude_json.read_text(encoding="utf-8") or "{}")
             if not isinstance(existing, dict):
-                raise ValueError("settings.json root is not an object")
+                raise ValueError(".claude.json root is not an object")
         except Exception as exc:  # noqa: BLE001
             sys.stderr.write(
-                f"Could not parse {settings}: {exc}\n"
+                f"Could not parse {claude_json}: {exc}\n"
                 "Refusing to modify. Fix the file manually, or pass --dry-run to see the intended change.\n"
             )
             return 1
 
-    # Merge-in our MCP server entry, preserving anything else.
+    # Build the MCP entry for this scope.
+    entry = _mcp_entry()
+
+    # Determine where in the file structure the entry goes.
+    # ~/.claude.json uses a projects dict keyed by project path (or "*" for
+    # user-scope). Each project has an mcpServers block.
     updated = dict(existing)
-    mcp_block = dict(updated.get("mcpServers") or {})
-    if "dvad" in mcp_block and mcp_block["dvad"] != _mcp_entry():
-        existing_entry = mcp_block["dvad"]
-        sys.stderr.write(
-            "Existing 'dvad' MCP entry differs; it will be overwritten. Old value:\n"
-            + json.dumps(existing_entry, indent=2) + "\n"
-        )
-    mcp_block["dvad"] = _mcp_entry()
-    updated["mcpServers"] = mcp_block
+
+    if scope == "user":
+        # User-scope: top-level mcpServers block.
+        mcp_block = dict(updated.get("mcpServers") or {})
+        if "dvad" in mcp_block and mcp_block["dvad"] != entry:
+            sys.stderr.write(
+                "Existing 'dvad' MCP entry differs; it will be overwritten. Old value:\n"
+                + json.dumps(mcp_block["dvad"], indent=2) + "\n"
+            )
+        mcp_block["dvad"] = entry
+        updated["mcpServers"] = mcp_block
+    else:
+        # Local-scope: under projects.<cwd>.mcpServers
+        project_key = _build_project_key(os.getcwd())
+        projects = dict(updated.get("projects") or {})
+        proj = dict(projects.get(project_key) or {})
+        mcp_block = dict(proj.get("mcpServers") or {})
+        if "dvad" in mcp_block and mcp_block["dvad"] != entry:
+            sys.stderr.write(
+                "Existing 'dvad' MCP entry differs; it will be overwritten. Old value:\n"
+                + json.dumps(mcp_block["dvad"], indent=2) + "\n"
+            )
+        mcp_block["dvad"] = entry
+        proj["mcpServers"] = mcp_block
+        projects[project_key] = proj
+        updated["projects"] = projects
 
     serialized = json.dumps(updated, indent=2) + "\n"
 
-    print(f"→ settings: {settings}")
-    print(f"→ skill:    {intended_skill}")
+    print(f"→ config: {claude_json}")
+    print(f"→ scope:  {scope}")
+    print(f"→ binary: {entry['command']}")
+    print(f"→ skill:  {intended_skill}")
     if dry_run:
         print("\n--- DRY RUN ---\n")
-        print("settings.json would become:")
+        print(f"{claude_json.name} would become:")
         print(serialized)
         print("\n---\n")
         print(f"skill file {intended_skill} would contain ~{len(_embedded_skill_body())} bytes of skill content.")
         return 0
 
-    # 1. Write settings (with backup).
+    # 1. Write .claude.json (with backup).
     try:
-        settings.parent.mkdir(parents=True, exist_ok=True)
-        if settings.exists():
+        claude_json.parent.mkdir(parents=True, exist_ok=True)
+        if claude_json.exists():
             stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-            backup = settings.with_name(f"{settings.name}.dvad-backup.{stamp}")
-            shutil.copy2(settings, backup)
+            backup = claude_json.with_name(f"{claude_json.name}.dvad-backup.{stamp}")
+            shutil.copy2(claude_json, backup)
             print(f"✓ backup: {backup}")
-        settings.write_text(serialized, encoding="utf-8")
+        claude_json.write_text(serialized, encoding="utf-8")
         try:
-            os.chmod(settings, 0o600)
+            os.chmod(claude_json, 0o600)
         except OSError:
             pass
-        print(f"✓ wrote {settings}")
+        print(f"✓ wrote {claude_json}")
     except OSError as exc:
-        sys.stderr.write(f"could not write {settings}: {exc}\n")
-        _print_paste_fallback(settings, serialized, intended_skill)
+        sys.stderr.write(f"could not write {claude_json}: {exc}\n")
+        _print_paste_fallback(claude_json, serialized, intended_skill)
         return 1
 
     # 2. Write skill file.
@@ -113,17 +160,17 @@ def run_install(
         print(f"✓ wrote {intended_skill}")
     except OSError as exc:
         sys.stderr.write(f"could not write {intended_skill}: {exc}\n")
-        _print_paste_fallback(settings, serialized, intended_skill)
+        _print_paste_fallback(claude_json, serialized, intended_skill)
         return 1
 
-    print("\nInstall complete. Restart your Claude Code session and run `dvad_config`.")
+    print("\nInstall complete. Restart your Claude Code session and run dvad_config.")
     return 0
 
 
-def _print_paste_fallback(settings: Path, serialized: str, skill_path: Path) -> None:
+def _print_paste_fallback(config_file: Path, serialized: str, skill_path: Path) -> None:
     print("\n--- PASTE FALLBACK ---\n", file=sys.stderr)
     print(
-        f"Copy the JSON below into {settings}:\n\n{serialized}\n",
+        f"Copy the JSON below into {config_file}:\n\n{serialized}\n",
         file=sys.stderr,
     )
     print(

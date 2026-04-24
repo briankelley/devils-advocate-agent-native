@@ -188,7 +188,7 @@ def cmd_review(args: argparse.Namespace) -> int:
 def cmd_install(args: argparse.Namespace) -> int:
     from .install import run_install
 
-    return run_install(dry_run=args.dry_run, config_path=args.config, skill_dir=args.skill_dir)
+    return run_install(dry_run=args.dry_run, config_path=args.config, skill_dir=args.skill_dir, scope=args.scope)
 
 
 # ─── argparse ─────────────────────────────────────────────────────────────────
@@ -237,12 +237,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.add_argument(
         "--config",
         default=None,
-        help="Path to Claude Code settings.json (default: ~/.claude/settings.json).",
+        help="Path to .claude.json (default: ~/.claude.json).",
     )
     p_install.add_argument(
         "--skill-dir",
         default=None,
         help="Path to Claude Code skill directory (default: ~/.claude/skills/).",
+    )
+    p_install.add_argument(
+        "--scope",
+        choices=["user", "local"],
+        default="user",
+        help="Install scope: 'user' (all projects) or 'local' (current directory only). Default: user.",
     )
     p_install.set_defaults(func=cmd_install)
 
