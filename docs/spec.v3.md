@@ -117,6 +117,12 @@ Returns (JSON):
     "low": 1
   },
   "reviewer_errors": [],
+  "token_usage": [
+    {"model_id": "claude-sonnet-4-6", "provider": "anthropic", "role": "reviewer", "input_tokens": 7200, "output_tokens": 1400, "cost_usd": 0.023},
+    {"model_id": "gpt-5", "provider": "openai", "role": "reviewer", "input_tokens": 7100, "output_tokens": 1300, "cost_usd": 0.019},
+    {"model_id": "claude-haiku-4-5-20251001", "provider": "anthropic", "role": "dedup", "input_tokens": 1200, "output_tokens": 400, "cost_usd": 0.003}
+  ],
+  "tokens_total": 18600,
   "report_markdown": "# dvad Lite Review\n\n## Summary\n..."
 }
 ```
@@ -128,6 +134,8 @@ Key design decisions:
 - `findings` are severity-tagged AND consensus-counted. An agent can filter on `severity >= high AND consensus >= 2` to focus on high-signal issues.
 - `review_id` enables follow-up. `parent_review_id` enables iteration tracking across re-reviews of the same artifact.
 - `reviewer_errors` lists any models that failed during the review (see Partial Failure Handling).
+- `token_usage` is a per-model breakdown of actual token consumption (input/output) and cost. `cost_usd` is `null` when pricing metadata is unavailable for a non-zero call, and `0.0` for zero-token failure paths (timeout, connection error). `role` is sourced from the model's config role ("reviewer" or "dedup"). Present on both `ok` and `failed_review` responses — the human needs the receipt even when the review fails.
+- `tokens_total` is the sum of all input + output tokens across all models. Derived from `token_usage`, not stored independently. Agents include this in the handoff summary line when non-zero.
 - `category` is a **closed enum** — not free-form. Defined values: `correctness`, `security`, `performance`, `reliability`, `testing`, `maintainability`, `compatibility`, `documentation`, `other`. When `category` is `other`, `category_detail` contains a free-text description. Reviewer model outputs are normalized into this taxonomy during dedup. This enables reliable agent filtering and aggregation without category drift (e.g., `"security"` vs `"vulnerability"` vs `"Security Issues"` collapsing into one consistent value).
 
 #### `dvad_estimate`
@@ -142,6 +150,10 @@ Returns:
 {
   "estimated_cost_usd": 0.25,
   "estimated_duration_seconds": 20,
+  "total_estimated_tokens": 11940,
+  "total_estimated_tokens_in": 2440,
+  "total_estimated_tokens_out": 9500,
+  "total_estimated_tokens_note": "Approximation: token estimates are based on artifact size only. Actual dvad_review input includes system prompts, rubrics, and reference files, so real token consumption is typically higher.",
   "models_available": [
     {"name": "claude-sonnet-4-6", "provider": "anthropic"},
     {"name": "gpt-5", "provider": "openai"}
@@ -151,7 +163,8 @@ Returns:
 }
 ```
 
-If fewer than 2 models are available from detected API keys, `minimum_met` is `false` and `message` explains what's missing. This lets the agent decide whether to proceed (single-model review has limited value) or skip with a note to the human.
+- `total_estimated_tokens` is the sum of estimated input and output tokens across all reviewer and dedup models. Based on artifact size only — actual review consumption is typically higher due to system prompts, rubrics, and reference files.
+- If fewer than 2 models are available from detected API keys, `minimum_met` is `false` and `message` explains what's missing. This lets the agent decide whether to proceed (single-model review has limited value) or skip with a note to the human.
 
 #### `dvad_config`
 
