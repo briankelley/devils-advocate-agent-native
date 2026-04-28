@@ -251,6 +251,16 @@ class ReviewContext:
 
 
 @dataclass
+class ModelTokenUsage:
+    model_id: str
+    provider: str
+    role: str
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float | None
+
+
+@dataclass
 class ReviewResult:
     review_id: str
     artifact_type: str
@@ -272,6 +282,11 @@ class ReviewResult:
     report_markdown: str
     parent_review_id: str | None = None
     pricing_unavailable: bool = False
+    token_usage: list[ModelTokenUsage] = field(default_factory=list)
+
+    @property
+    def tokens_total(self) -> int:
+        return sum(u.input_tokens + u.output_tokens for u in self.token_usage)
 
 
 # ─── Tool response discriminated union ────────────────────────────────────────

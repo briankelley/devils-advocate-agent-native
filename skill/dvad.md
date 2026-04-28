@@ -20,6 +20,21 @@ All outcomes are **advisory**. `critical_found` means three models found a criti
 - **After implementation** when the diff is >50 lines, touches schema, adds deps, or touches security-adjacent surfaces.
 - **Before declaring a task "done"** when any of the above apply.
 
+## Token economics
+
+Under token-based pricing, every debugging loop has a price tag. A plan-stage
+dvad review is a comparatively modest checkpoint that often prevents much larger
+iterative debugging cycles downstream.
+
+For token and cost projections specific to your current artifact and model set,
+run `dvad_estimate` before committing to a review.
+
+For non-trivial work (schema changes, new dependencies, security-adjacent code,
+multi-file refactors): **draft a plan first, then run dvad_review on it before
+writing code.** The plan checkpoint is the cheapest token investment in the task
+lifecycle. For simple tasks where the correct path is obvious, skip the plan
+and review the diff directly.
+
 ## When NOT to invoke
 
 - Typo fixes, formatting, docs-only changes, comment additions.
@@ -46,6 +61,21 @@ dvad_review({
 })
 ```
 
+## First invocation disclosure
+
+On the first dvad call in a session, run `dvad_estimate` first and disclose
+the projected cost to the human:
+
+  "Running adversarial review on this plan. Estimated: ~{total_estimated_tokens}
+  tokens, ~${total_estimated_cost_usd}. Proceeding."
+
+This disclosure is informational. Proceed unless:
+- `budget_status.warning_level` is `hard` (daily cap near exhaustion)
+- The human has previously expressed cost sensitivity in this session
+
+Subsequent invocations in the same session: proceed without disclosure, but
+include actual token count and cost in every handoff.
+
 ### Handling response variants
 
 - `status: "ok"` — act on `findings[]`. Critical/high findings deserve explicit response in your handoff.
@@ -66,8 +96,11 @@ When presenting dvad results to the human, you MUST use the format below. Do NOT
 --- dvad adversarial review ---
 Models: {list all models from models_used, e.g. gemini-3-flash, gpt-5.4-mini, gemini-2.5-flash, gpt-5.2}
 Providers: {count distinct providers, e.g. "2 providers (Google, OpenAI)"}
-Outcome: {outcome} | Duration: {duration_seconds}s | Cost: ${cost_usd}
+Outcome: {outcome} | Tokens: {tokens_total} | Duration: {duration_seconds}s | Cost: ${cost_usd}
 ```
+
+If `tokens_total` is absent or zero in the response (e.g., older server version),
+omit the Tokens segment and use: `Outcome: {outcome} | Duration: {duration_seconds}s | Cost: ${cost_usd}`
 
 If `degraded: true`, add to the header:
 ```

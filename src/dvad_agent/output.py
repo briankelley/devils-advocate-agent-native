@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from .types import (
     Finding,
+    ModelTokenUsage,
     ReviewResult,
     SEVERITY_RANK,
     Severity,
@@ -29,6 +30,7 @@ def render_markdown(result: ReviewResult) -> str:
         lines.append(f"- **Parent review:** `{result.parent_review_id}`")
     lines.append(f"- **Duration:** {result.duration_seconds:.1f}s")
     lines.append(f"- **Cost:** ${result.cost_usd:.4f}")
+    lines.append(f"- **Tokens:** {result.tokens_total:,} total")
     lines.append(f"- **Models used:** {', '.join(result.models_used)}")
     lines.append("")
 
@@ -134,6 +136,18 @@ def render_markdown(result: ReviewResult) -> str:
             start, end = m.approx_line_range
             span = f"lines {start}–{end}" if start != end else f"line {start}"
             lines.append(f"- `{m.pattern_type}` in `{m.channel}` ({span})")
+        lines.append("")
+
+    # Token breakdown
+    if result.token_usage:
+        lines.append("## Token breakdown")
+        lines.append("")
+        for u in result.token_usage:
+            cost_str = f"${u.cost_usd:.4f}" if u.cost_usd is not None else "n/a"
+            lines.append(
+                f"- **{u.model_id}** ({u.role}): "
+                f"{u.input_tokens:,} in / {u.output_tokens:,} out — {cost_str}"
+            )
         lines.append("")
 
     # Budget footer

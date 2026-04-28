@@ -198,6 +198,12 @@ async def handle_dvad_estimate(
             ),
         }
 
+    total_tokens_in = sum(m.get("estimated_tokens_in", 0) for m in per_model)
+    total_tokens_out = sum(m.get("estimated_tokens_out", 0) for m in per_model)
+    if dedup_estimate:
+        total_tokens_in += dedup_estimate.get("estimated_tokens_in", 0)
+        total_tokens_out += dedup_estimate.get("estimated_tokens_out", 0)
+
     status = await budget_manager.read_status()
     return {
         "status": "ok",
@@ -205,6 +211,14 @@ async def handle_dvad_estimate(
         "reviewers": per_model,
         "dedup": dedup_estimate,
         "total_estimated_cost_usd": total_estimate,
+        "total_estimated_tokens": total_tokens_in + total_tokens_out,
+        "total_estimated_tokens_in": total_tokens_in,
+        "total_estimated_tokens_out": total_tokens_out,
+        "total_estimated_tokens_note": (
+            "Approximation: token estimates are based on artifact size only. "
+            "Actual dvad_review input includes system prompts, rubrics, and "
+            "reference files, so real token consumption is typically higher."
+        ),
         "pricing_unavailable": any_unknown,
         "budget_status": {
             "spent_usd": status.spent_usd,

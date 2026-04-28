@@ -44,6 +44,7 @@ from .types import (
     Category,
     Finding,
     ModelConfig,
+    ModelTokenUsage,
     Outcome,
     ReviewContext,
     ReviewResult,
@@ -340,6 +341,25 @@ async def run_lite_review(
         # Allow cancellations to settle
         await asyncio.gather(*pending, return_exceptions=True)
 
+    # Build token usage from all reviewer results (before partial-failure check)
+    token_usage: list[ModelTokenUsage] = []
+    for mid, (_f, _e, usage) in reviewer_results.items():
+        model = reviewers_full_lookup(reviewers_full, mid)
+        in_tok = usage.get("input_tokens", 0)
+        out_tok = usage.get("output_tokens", 0)
+        if in_tok == 0 and out_tok == 0:
+            entry_cost: float | None = 0.0
+        else:
+            entry_cost = _cost.estimate_cost(model, in_tok, out_tok)
+        token_usage.append(ModelTokenUsage(
+            model_id=model.model_id,
+            provider=model.provider,
+            role=model.role,
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+            cost_usd=entry_cost,
+        ))
+
     # Partial-failure rule ───────────────────────────────────────────────────
     successes = [
         (reviewers_full_lookup(reviewers_full, mid), findings, usage)
@@ -347,10 +367,10 @@ async def run_lite_review(
         if findings is not None and err is None
     ]
     errors = [err for (findings, err, _usage) in reviewer_results.values() if err is not None]
-    cost_usd = sum(usage.get("cost_usd", 0.0) or 0.0 for (_findings, _err, usage) in reviewer_results.values())
 
     if len(successes) < 2:
-        await bm.record_spend(cost_usd)  # still record any partial spend
+        cost_usd_total = sum(u.cost_usd or 0.0 for u in token_usage)
+        await bm.record_spend(cost_usd_total)
         status = await bm.read_status()
         return ToolResponse(
             status="failed_review",
@@ -361,6 +381,10 @@ async def run_lite_review(
                     "at least 2 are required."
                 ),
                 "reviewer_errors": [_err_dict(e) for e in errors],
+                "token_usage": [_token_usage_dict(u) for u in token_usage],
+                "tokens_total": sum(u.input_tokens + u.output_tokens for u in token_usage),
+                "cost_usd": cost_usd_total,
+                "pricing_unavailable": any(u.cost_usd is None for u in token_usage),
                 "budget_status": _budget_status_dict(status),
             },
         )
@@ -430,7 +454,25 @@ async def run_lite_review(
     final_findings, dedup_method, dedup_skipped, dedup_usage = await _run_dedup(
         client, dedup_items, dedup_models, successes, dedup_window=dedup_window,
     )
-    cost_usd += dedup_usage.get("cost_usd", 0.0) or 0.0
+
+    # Append dedup token usage if it consumed tokens
+    if dedup_usage.get("input_tokens", 0) > 0 and dedup_models:
+        dedup_model = dedup_models[0]
+        d_in = dedup_usage.get("input_tokens", 0)
+        d_out = dedup_usage.get("output_tokens", 0)
+        d_cost = _cost.estimate_cost(dedup_model, d_in, d_out)
+        token_usage.append(ModelTokenUsage(
+            model_id=dedup_model.model_id,
+            provider=dedup_model.provider,
+            role=dedup_model.role,
+            input_tokens=d_in,
+            output_tokens=d_out,
+            cost_usd=d_cost,
+        ))
+
+    # Derive aggregates from token_usage (single source of truth)
+    cost_usd = sum(u.cost_usd or 0.0 for u in token_usage)
+    pricing_unavailable = any(u.cost_usd is None for u in token_usage)
 
     if progress:
         progress({"event": "dedup_done", "method": dedup_method, "findings": len(final_findings)})
@@ -481,6 +523,7 @@ async def run_lite_review(
         report_markdown="",  # filled in below
         parent_review_id=parent_review_id,
         pricing_unavailable=pricing_unavailable,
+        token_usage=token_usage,
     )
     result.report_markdown = _output.render_markdown(result)
 
@@ -697,6 +740,17 @@ def _err_dict(err: ReviewerError) -> dict:
     }
 
 
+def _token_usage_dict(u: ModelTokenUsage) -> dict:
+    return {
+        "model_id": u.model_id,
+        "provider": u.provider,
+        "role": u.role,
+        "input_tokens": u.input_tokens,
+        "output_tokens": u.output_tokens,
+        "cost_usd": u.cost_usd,
+    }
+
+
 def _budget_status_dict(status: BudgetStatus) -> dict:
     return {
         "spent_usd": status.spent_usd,
@@ -751,6 +805,8 @@ def _result_to_dict(
         "original_artifact_sha256": result.original_artifact_sha256,
         "budget_status": _budget_status_dict(result.budget_status),
         "pricing_unavailable": result.pricing_unavailable,
+        "token_usage": [_token_usage_dict(u) for u in result.token_usage],
+        "tokens_total": result.tokens_total,
         "report_markdown": result.report_markdown,
         "rejected_reference_files": [
             {"path": r.path, "reason": r.reason} for r in rejected_refs

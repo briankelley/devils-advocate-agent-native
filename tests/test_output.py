@@ -3,6 +3,7 @@ from dvad_agent.types import (
     BudgetStatus,
     Category,
     Finding,
+    ModelTokenUsage,
     Outcome,
     ReviewResult,
     Severity,
@@ -92,3 +93,41 @@ def test_findings_grouped_by_severity():
     crit_idx = md.index("### Critical")
     med_idx = md.index("### Medium")
     assert crit_idx < med_idx  # severity ordering correct
+
+
+def test_tokens_total_in_header():
+    usage = [
+        ModelTokenUsage(
+            model_id="claude-sonnet-4-6", provider="anthropic", role="reviewer",
+            input_tokens=5000, output_tokens=1200, cost_usd=0.02,
+        ),
+        ModelTokenUsage(
+            model_id="gpt-5", provider="openai", role="reviewer",
+            input_tokens=5000, output_tokens=1100, cost_usd=0.03,
+        ),
+    ]
+    md = render_markdown(_result(token_usage=usage))
+    assert "**Tokens:** 12,300 total" in md
+
+
+def test_token_breakdown_section():
+    usage = [
+        ModelTokenUsage(
+            model_id="claude-sonnet-4-6", provider="anthropic", role="reviewer",
+            input_tokens=5000, output_tokens=1200, cost_usd=0.0234,
+        ),
+        ModelTokenUsage(
+            model_id="gpt-5", provider="openai", role="reviewer",
+            input_tokens=4800, output_tokens=1100, cost_usd=None,
+        ),
+    ]
+    md = render_markdown(_result(token_usage=usage))
+    assert "## Token breakdown" in md
+    assert "**claude-sonnet-4-6** (reviewer): 5,000 in / 1,200 out" in md
+    assert "$0.0234" in md
+    assert "n/a" in md
+
+
+def test_token_breakdown_absent_when_empty():
+    md = render_markdown(_result(token_usage=[]))
+    assert "Token breakdown" not in md

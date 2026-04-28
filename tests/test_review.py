@@ -194,3 +194,80 @@ async def test_degraded_false_when_all_providers_represented(monkeypatch):
     assert resp.status == "ok"
     # All planned providers still represented → degraded=False
     assert resp.body["degraded"] is False
+
+
+async def test_token_usage_present_in_ok_response(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
+
+    async def fake(client, model, system, user, **kw):
+        return ProviderResult(text=_ok_findings_json(), input_tokens=500, output_tokens=200)
+
+    with patch("dvad_agent.review.call_with_retry", side_effect=fake), \
+         patch("dvad_agent.dedup.call_with_retry", side_effect=fake):
+        resp = await _run()
+    assert resp.status == "ok"
+    assert "token_usage" in resp.body
+    assert "tokens_total" in resp.body
+    assert len(resp.body["token_usage"]) >= 2
+    total = sum(
+        u["input_tokens"] + u["output_tokens"] for u in resp.body["token_usage"]
+    )
+    assert resp.body["tokens_total"] == total
+
+
+async def test_token_usage_cost_derived_from_entries(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
+
+    async def fake(client, model, system, user, **kw):
+        return ProviderResult(text=_ok_findings_json(), input_tokens=500, output_tokens=200)
+
+    with patch("dvad_agent.review.call_with_retry", side_effect=fake), \
+         patch("dvad_agent.dedup.call_with_retry", side_effect=fake):
+        resp = await _run()
+    assert resp.status == "ok"
+    entry_sum = sum(u["cost_usd"] or 0.0 for u in resp.body["token_usage"])
+    assert abs(resp.body["cost_usd"] - entry_sum) < 1e-6
+
+
+async def test_failed_review_includes_token_usage(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
+
+    call_count = {"n": 0}
+
+    async def fake(client, model, system, user, **kw):
+        call_count["n"] += 1
+        if call_count["n"] <= 3:
+            raise RuntimeError("simulated provider failure")
+        return ProviderResult(text=_ok_findings_json(), input_tokens=100, output_tokens=50)
+
+    with patch("dvad_agent.review.call_with_retry", side_effect=fake):
+        resp = await _run()
+    assert resp.status == "failed_review"
+    assert "token_usage" in resp.body
+    assert "tokens_total" in resp.body
+    assert "cost_usd" in resp.body
+    assert "pricing_unavailable" in resp.body
+
+
+async def test_failed_reviewer_has_zero_tokens(monkeypatch):
+    """Timeout/connection-error reviewers get zero tokens and cost_usd=0.0."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
+
+    async def fake(client, model, system, user, **kw):
+        if model.provider == "openai":
+            raise RuntimeError("provider down")
+        return ProviderResult(text=_ok_findings_json(), input_tokens=500, output_tokens=200)
+
+    with patch("dvad_agent.review.call_with_retry", side_effect=fake), \
+         patch("dvad_agent.dedup.call_with_retry", side_effect=fake):
+        resp = await _run()
+    assert resp.status == "ok"
+    for entry in resp.body["token_usage"]:
+        if entry["provider"] == "openai" and entry["role"] == "reviewer":
+            assert entry["input_tokens"] == 0
+            assert entry["output_tokens"] == 0
+            assert entry["cost_usd"] == 0.0
