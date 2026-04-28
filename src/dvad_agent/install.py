@@ -33,12 +33,42 @@ def _resolve_binary() -> str:
     return binary if binary else "dvad-agent-mcp"
 
 
+def _detect_env_keys() -> dict[str, str]:
+    """Detect API keys in the current environment to seed the MCP env block."""
+    env: dict[str, str] = {}
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY"):
+        val = os.environ.get(var)
+        if val:
+            env[var] = val
+    for var in ("ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"):
+        val = os.environ.get(var)
+        if val:
+            env[var] = val
+    return env
+
+
 def _mcp_entry() -> dict:
-    return {
+    env = _detect_env_keys()
+    entry: dict = {
         "type": "stdio",
         "command": _resolve_binary(),
         "args": [],
     }
+    if env:
+        entry["env"] = env
+    else:
+        entry["env"] = {
+            "ANTHROPIC_API_KEY": "",
+            "OPENAI_API_KEY": "",
+        }
+        sys.stderr.write(
+            "\n⚠ No API keys found in current environment.\n"
+            "  Edit the 'env' block in ~/.claude.json to add your keys:\n"
+            '    "ANTHROPIC_API_KEY": "sk-ant-...",\n'
+            '    "OPENAI_API_KEY": "sk-...",\n'
+            "  Then restart your Claude Code session.\n\n"
+        )
+    return entry
 
 
 def _embedded_skill_body() -> str:

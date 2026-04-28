@@ -97,15 +97,19 @@ async def run_lite_review(
             body={
                 "review_id": review_id,
                 "reason": (
-                    "At least two reviewer-role models are required. Set "
-                    "ANTHROPIC_API_KEY, OPENAI_API_KEY, and/or GOOGLE_API_KEY."
+                    "At least two reviewer-role models are required. Add API keys "
+                    "to the dvad MCP server's env block in ~/.claude.json."
                 ),
                 "setup_steps": [
-                    "Export at least one supported API key into your shell.",
-                    "Restart the MCP server (or the parent agent session).",
+                    "Open ~/.claude.json and find the dvad entry under mcpServers.",
+                    "Add your API keys to the \"env\" block:",
+                    "  \"ANTHROPIC_API_KEY\": \"sk-ant-...\"",
+                    "  \"OPENAI_API_KEY\": \"sk-...\"",
+                    "At least 2 reviewer models are needed (one key with 2+ models, or two keys).",
+                    "Restart the MCP server or agent session to pick up new keys.",
                     "Call dvad_config to verify detected providers.",
                 ],
-                "docs_url": "https://github.com/briankelley/dvad-agent-native#install",
+                "docs_url": "https://github.com/briankelley/devils-advocate-agent-native#setup",
             },
         )
 

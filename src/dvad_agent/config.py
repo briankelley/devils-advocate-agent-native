@@ -502,13 +502,17 @@ def config_snapshot() -> dict[str, Any]:
     if not met:
         result["setup_required"] = {
             "message": (
-                "dvad requires at least 2 reviewer models. Export API keys "
-                "for one or more providers, then restart the MCP server."
+                "dvad requires at least 2 reviewer models. Add API keys "
+                "to the dvad MCP server's env block in ~/.claude.json, "
+                "then restart the MCP server."
             ),
             "setup_steps": [
-                "export ANTHROPIC_API_KEY='sk-ant-...'",
-                "export OPENAI_API_KEY='sk-...'",
-                "export GOOGLE_API_KEY='AIza...'   # or GEMINI_API_KEY",
+                "Open ~/.claude.json and find the dvad entry under mcpServers.",
+                "Add your API keys to the \"env\" block:",
+                "  \"ANTHROPIC_API_KEY\": \"sk-ant-...\"",
+                "  \"OPENAI_API_KEY\": \"sk-...\"",
+                "  \"GOOGLE_API_KEY\": \"AIza...\"   (optional third provider)",
+                "At least 2 reviewer models are needed (one key with 2+ models, or two keys).",
                 "Restart the MCP server or agent session to pick up new keys.",
                 "Run dvad_config again to verify.",
             ],
