@@ -36,7 +36,10 @@ def _resolve_binary() -> str:
 def _detect_env_keys() -> dict[str, str]:
     """Detect API keys in the current environment to seed the MCP env block."""
     env: dict[str, str] = {}
-    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY"):
+    for var in (
+        "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY",
+        "DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "DASHSCOPE_API_KEY",
+    ):
         val = os.environ.get(var)
         if val:
             env[var] = val

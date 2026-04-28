@@ -25,6 +25,9 @@ from .types import ModelConfig, SecretsMode
 ENV_ANTHROPIC_KEY = "ANTHROPIC_API_KEY"
 ENV_OPENAI_KEY = "OPENAI_API_KEY"
 ENV_GOOGLE_KEYS = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+ENV_DEEPSEEK_KEY = "DEEPSEEK_API_KEY"
+ENV_MOONSHOT_KEY = "MOONSHOT_API_KEY"
+ENV_DASHSCOPE_KEY = "DASHSCOPE_API_KEY"
 ENV_ANTHROPIC_BASE = "ANTHROPIC_BASE_URL"
 ENV_OPENAI_BASE = "OPENAI_BASE_URL"
 
@@ -130,6 +133,78 @@ _DEFAULT_MODEL_TABLE: dict[str, list[dict[str, Any]]] = {
             "max_output_tokens": 1500,
         },
     ],
+    "deepseek": [
+        {
+            "model_id": "deepseek-chat",
+            "role": "reviewer",
+            "cost_per_1k_input": 0.00014,
+            "cost_per_1k_output": 0.00028,
+            "context_window": 128_000,
+            "max_output_tokens": 1500,
+            "use_openai_compat": True,
+        },
+        {
+            "model_id": "deepseek-reasoner",
+            "role": "reviewer",
+            "cost_per_1k_input": 0.00055,
+            "cost_per_1k_output": 0.00219,
+            "context_window": 128_000,
+            "max_output_tokens": 1500,
+            "use_openai_compat": True,
+        },
+        {
+            "model_id": "deepseek-chat",
+            "role": "dedup",
+            "cost_per_1k_input": 0.00014,
+            "cost_per_1k_output": 0.00028,
+            "context_window": 128_000,
+            "max_output_tokens": 2000,
+            "use_openai_compat": True,
+            "thinking_enabled": False,
+        },
+    ],
+    "moonshot": [
+        {
+            "model_id": "kimi-k2",
+            "role": "reviewer",
+            "cost_per_1k_input": 0.0006,
+            "cost_per_1k_output": 0.0024,
+            "context_window": 128_000,
+            "max_output_tokens": 1500,
+            "use_openai_compat": True,
+        },
+        {
+            "model_id": "moonshot-v1-auto",
+            "role": "dedup",
+            "cost_per_1k_input": 0.00015,
+            "cost_per_1k_output": 0.0006,
+            "context_window": 128_000,
+            "max_output_tokens": 2000,
+            "use_openai_compat": True,
+            "thinking_enabled": False,
+        },
+    ],
+    "dashscope": [
+        {
+            "model_id": "qwen-max",
+            "role": "reviewer",
+            "cost_per_1k_input": 0.0016,
+            "cost_per_1k_output": 0.0064,
+            "context_window": 128_000,
+            "max_output_tokens": 1500,
+            "use_openai_compat": True,
+        },
+        {
+            "model_id": "qwen-turbo",
+            "role": "dedup",
+            "cost_per_1k_input": 0.0003,
+            "cost_per_1k_output": 0.0006,
+            "context_window": 128_000,
+            "max_output_tokens": 2000,
+            "use_openai_compat": True,
+            "thinking_enabled": False,
+        },
+    ],
 }
 
 # Gemini flash also serves as the dedup fallback for google-only setups.
@@ -146,6 +221,9 @@ _PROVIDER_DEFAULT_BASES = {
     "anthropic": "https://api.anthropic.com",
     "openai": "https://api.openai.com/v1",
     "google": "https://generativelanguage.googleapis.com",
+    "deepseek": "https://api.deepseek.com/v1",
+    "moonshot": "https://api.moonshot.cn/v1",
+    "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
 }
 
 
@@ -178,6 +256,24 @@ def detect_providers() -> dict[str, dict[str, str]]:
                 "api_base": _PROVIDER_DEFAULT_BASES["google"],
             }
             break
+
+    if os.environ.get(ENV_DEEPSEEK_KEY):
+        providers["deepseek"] = {
+            "api_key": os.environ[ENV_DEEPSEEK_KEY],
+            "api_base": _PROVIDER_DEFAULT_BASES["deepseek"],
+        }
+
+    if os.environ.get(ENV_MOONSHOT_KEY):
+        providers["moonshot"] = {
+            "api_key": os.environ[ENV_MOONSHOT_KEY],
+            "api_base": _PROVIDER_DEFAULT_BASES["moonshot"],
+        }
+
+    if os.environ.get(ENV_DASHSCOPE_KEY):
+        providers["dashscope"] = {
+            "api_key": os.environ[ENV_DASHSCOPE_KEY],
+            "api_base": _PROVIDER_DEFAULT_BASES["dashscope"],
+        }
 
     return providers
 
@@ -508,11 +604,10 @@ def config_snapshot() -> dict[str, Any]:
             ),
             "setup_steps": [
                 "Open ~/.claude.json and find the dvad entry under mcpServers.",
-                "Add your API keys to the \"env\" block:",
-                "  \"ANTHROPIC_API_KEY\": \"sk-ant-...\"",
-                "  \"OPENAI_API_KEY\": \"sk-...\"",
-                "  \"GOOGLE_API_KEY\": \"AIza...\"   (optional third provider)",
-                "At least 2 reviewer models are needed (one key with 2+ models, or two keys).",
+                "Add your API keys to the \"env\" block. Any combination that gives 2+ models works:",
+                "  Premium: ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY",
+                "  Budget:  DEEPSEEK_API_KEY, MOONSHOT_API_KEY, DASHSCOPE_API_KEY (Qwen)",
+                "A single DeepSeek or Anthropic key provides 2 reviewer models on its own.",
                 "Restart the MCP server or agent session to pick up new keys.",
                 "Run dvad_config again to verify.",
             ],
