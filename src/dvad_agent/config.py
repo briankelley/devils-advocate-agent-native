@@ -482,12 +482,13 @@ def config_snapshot() -> dict[str, Any]:
     else:
         plat = system
 
-    return {
+    met = minimum_met(reviewers)
+    result: dict[str, Any] = {
         "providers_detected": sorted(providers.keys()),
         "base_urls": {p: info["api_base"] for p, info in providers.items()},
         "reviewers": reviewer_rows,
         "dedup": dedup_rows,
-        "minimum_met": minimum_met(reviewers),
+        "minimum_met": met,
         "diversity_warning": compute_diversity_warning(reviewers),
         "budget": {
             "per_review_usd": get_budget_per_review(),
@@ -498,3 +499,19 @@ def config_snapshot() -> dict[str, Any]:
         "persist_reviews": get_persist_reviews(),
         "platform": plat,
     }
+    if not met:
+        result["setup_required"] = {
+            "message": (
+                "dvad requires at least 2 reviewer models. Export API keys "
+                "for one or more providers, then restart the MCP server."
+            ),
+            "setup_steps": [
+                "export ANTHROPIC_API_KEY='sk-ant-...'",
+                "export OPENAI_API_KEY='sk-...'",
+                "export GOOGLE_API_KEY='AIza...'   # or GEMINI_API_KEY",
+                "Restart the MCP server or agent session to pick up new keys.",
+                "Run dvad_config again to verify.",
+            ],
+            "docs_url": "https://github.com/briankelley/devils-advocate-agent-native#setup",
+        }
+    return result
