@@ -4,6 +4,8 @@
 
 ## What it is
 
+Very much still a WIP. It's usable, but incomplete.
+
 An MCP server + Claude Code skill that lets your coding agent run an adversarial multi-model review — at the plan stage, at the implementation stage, before saying "done." The handoff that lands on your screen shows what three models disagreed about, what the agent revised, and what it left for your judgment.
 
 Advisory, not a gate. Fast (sub-30s lite mode). Zero-config from API keys in your environment.
